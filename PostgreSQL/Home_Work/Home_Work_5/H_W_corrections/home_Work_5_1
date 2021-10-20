@@ -1,0 +1,41 @@
+/* Задание 2. С помощью оконной функции выведите для каждого покупателя стоимость платежа и стоимость платежа из предыдущей строки со значением по умолчанию 0.0 с сортировкой по дате. 
+ 
+ Во 2 и 3 заданиях в рамках оконных функций отсутствует сортировка, которая бы формировала последовательность платежей пользователей, сейчас Вы работаете со случайным порядком платежей.
+Во 2 и 3 заданиях лучше использовать синтаксис функции lag, для указания значения по умолчанию, чем добавлять функцию coalesce.
+
+По остальным заданиям все верно.
+    */
+
+ /*  	ПРЕЖНЯЯ ВЕРСИЯ */
+  
+  select customer_id , payment_id , payment_date , amount,
+	coalesce(lag(amount)over(partition by customer_id), 0) last_amount
+from payment p 
+order by customer_id 
+
+
+ /*  НОВАЯ ВЕРСИЯ  */ 
+
+select c.customer_id , p.payment_id , p.payment_date , p.amount,
+	lag(p.amount, 1, 0.)over(partition by c.customer_id order by p.payment_date) last_amount
+from payment p 
+join rental r on r.rental_id = p.rental_id 
+join customer c on c.customer_id = r.customer_id 
+
+   /* Задание 3. С помощью оконной функции определите, на сколько каждый следующий платеж покупателя больше или меньше текущего.  */
+
+                  /*  	ПРЕЖНЯЯ ВЕРСИЯ */
+
+select customer_id , payment_id , payment_date , amount,
+	(amount - coalesce(lead(amount)over(partition by customer_id), 0)) difference
+from payment p 
+order by customer_id 
+
+                  /*  НОВАЯ ВЕРСИЯ  */
+
+
+select c.customer_id , p.payment_id , p.payment_date , p.amount,
+	(amount - lead(p.amount, 1, 0.)over(partition by c.customer_id order by p.payment_date)) last_amount
+from payment p 
+join rental r on r.rental_id = p.rental_id 
+join customer c on c.customer_id = r.customer_id 
