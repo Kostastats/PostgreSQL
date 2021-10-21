@@ -1,0 +1,190 @@
+-- Задание 1. Напишите SQL-запрос, который выводит всю информацию о фильмах со специальным атрибутом “Behind the Scenes”.
+
+select film_id ,
+	title,
+	special_features  
+from film
+where special_features:: text like '%Behind the Scenes%'
+order by title 
+
+-- Задание 2. Напишите ещё 2 варианта поиска фильмов с атрибутом “Behind the Scenes”, используя другие функции или операторы языка SQL для поиска значения в массиве.
+
+select film_id ,
+	title,
+	special_features  
+from film
+where 'Behind the Scenes' = any(special_features)
+order by title 
+
+select film_id ,
+	title,
+	special_features  
+from film
+where special_features @> array['Behind the Scenes']
+order by title
+
+
+-- Задание 3. Для каждого покупателя посчитайте, сколько он брал в аренду фильмов со специальным атрибутом “Behind the Scenes”.
+-- Обязательное условие для выполнения задания: используйте запрос из задания 1, помещённый в CTE.
+
+with c as(select f.film_id ,
+		f.title,
+		f.special_features  
+		from film f
+		where f.special_features:: text like '%Behind the Scenes%'
+		order by title
+		)
+select r.customer_id,
+	count(c.special_features) film_count
+from c 
+join inventory i on c.film_id = i.film_id
+join rental r on i.inventory_id = r.inventory_id
+group by r.customer_id
+order by r.customer_id
+
+-- Задание 4. Для каждого покупателя посчитайте, сколько он брал в аренду фильмов со специальным атрибутом “Behind the Scenes”.
+-- Обязательное условие для выполнения задания: используйте запрос из задания 1, помещённый в подзапрос, который необходимо использовать для решения задания.
+
+select r.customer_id,
+	count(podzapros.special_features) film_count
+from (select f.film_id ,
+		f.title,
+		f.special_features  
+		from film f
+		where f.special_features:: text like '%Behind the Scenes%'
+		order by title
+		) podzapros
+join inventory i on podzapros.film_id = i.film_id
+join rental r on i.inventory_id = r.inventory_id
+group by r.customer_id
+order by r.customer_id
+
+-- Задание 5. Создайте материализованное представление с запросом из предыдущего задания и напишите запрос для обновления материализованного представления.
+
+create materialized view answer_5 as 
+	select r.customer_id,
+	count(podzapros.special_features) film_count
+	from (select f.film_id ,
+			f.title,
+			f.special_features  
+			from film f
+			where f.special_features:: text like '%Behind the Scenes%'
+			order by title
+			) podzapros
+	join inventory i on podzapros.film_id = i.film_id
+	join rental r on i.inventory_id = r.inventory_id
+	group by r.customer_id
+	order by r.customer_id
+with data 
+
+
+select *
+from answer_5
+
+
+refresh materialized view answer_5
+
+-- Задание 6. С помощью explain analyze проведите анализ скорости выполнения запросов из предыдущих заданий и ответьте на вопросы:
+--  с каким оператором или функцией языка SQL, используемыми при выполнении домашнего задания, поиск значения в массиве происходит быстрее;
+-- какой вариант вычислений работает быстрее: с использованием CTE или с использованием подзапроса.
+
+-- 1
+explain analyse
+select film_id ,
+	title,
+	special_features  
+from film
+where special_features:: text like '%Behind the Scenes%'
+order by title 
+ --  результат
+         --  стоимость 71,51
+-- Execution time: 2.130 ms
+
+
+ --2
+explain analyse
+select film_id ,
+	title,
+	special_features  
+from film
+where 'Behind the Scenes' = any(special_features)
+order by title 
+  --  cost=100.90
+-- Execution time: 1.654 ms
+
+
+explain analyse
+select film_id ,
+	title,
+	special_features  
+from film
+where special_features @> array['Behind the Scenes']
+order by title
+ -- стоимость 90,90
+ -- Execution time: 1.618 ms
+
+
+  -- 3
+explain analyse
+with c as(select f.film_id ,
+		f.title,
+		f.special_features  
+		from film f
+		where f.special_features:: text like '%Behind the Scenes%'
+		order by title
+		)
+select r.customer_id,
+	count(c.special_features) film_count
+from c 
+join inventory i on c.film_id = i.film_id
+join rental r on i.inventory_id = r.inventory_id
+group by r.customer_id
+order by r.customer_id
+  -- стоимость 162,79
+-- Execution time: 16.113 ms
+
+
+  --4
+explain analyse
+select r.customer_id,
+	count(podzapros.special_features) film_count
+from (select f.film_id ,
+		f.title,
+		f.special_features  
+		from film f
+		where f.special_features:: text like '%Behind the Scenes%'
+		order by title
+		) podzapros
+join inventory i on podzapros.film_id = i.film_id
+join rental r on i.inventory_id = r.inventory_id
+group by r.customer_id
+order by r.customer_id
+-- стоимость 162,78
+-- Execution time: 35.370 ms
+
+
+
+  --5
+explain analyse
+create materialized view answer_5 as 
+	select r.customer_id,
+	count(podzapros.special_features) film_count
+	from (select f.film_id ,
+			f.title,
+			f.special_features  
+			from film f
+			where f.special_features:: text like '%Behind the Scenes%'
+			order by title
+			) podzapros
+	join inventory i on podzapros.film_id = i.film_id
+	join rental r on i.inventory_id = r.inventory_id
+	group by r.customer_id
+	order by r.customer_id
+with data 
+-- стоимость 0,9
+-- Execution time: 0.124 ms
+
+
+
+
+
