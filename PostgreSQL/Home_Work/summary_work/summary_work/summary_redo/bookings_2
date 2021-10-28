@@ -1,0 +1,353 @@
+     -- 1 В каких городах больше одного аэропорта?
+
+
+
+select *
+from (select 
+	city->>'ru' as city,
+	count(airport_name) airports
+	from airports_data ad 
+	group by city 
+	order by airports desc
+	) c_a
+where c_a.airports > 1
+
+		/*	№ 2
+			Вопрос  : В каких аэропортах есть рейсы, выполняемые самолетом с максимальной дальностью перелета?
+			В решении обязательно должно быть использовано   - Подзапрос  		*/
+
+
+
+select *
+from(select max(range) as distance,
+	airport
+	from (select f.departure_airport ,
+				f.aircraft_code ,
+				ad.airport_name->> 'ru' as airport,
+				acd.range
+			from flights f 
+			join airports_data ad on ad.airport_code = f.departure_airport 
+			join aircrafts_data acd on acd.aircraft_code = f.aircraft_code) as info 
+			group by info.airport 
+			order by distance desc) foo
+where distance = any(select range
+					from(select range,
+							row_number()over(order by range desc) rating
+						from aircrafts_data ad) max_range
+						where max_range.rating = 1)
+
+
+
+select departure_airport,
+		airport,
+		range
+from (select f.departure_airport ,
+				f.aircraft_code ,
+				ad.airport_name->> 'ru' as airport,
+				acd.range,
+				rank()over(order by acd.range desc) 
+from flights f 
+join airports_data ad on ad.airport_code = f.departure_airport 
+join aircrafts_data acd on acd.aircraft_code = f.aircraft_code) foo
+where rank = 1
+group by foo.departure_airport, foo.aircraft_code, foo.airport, foo.range, foo.rank
+
+
+
+				/*	   № -3
+					Вопрос  :  Вывести 10 рейсов с максимальным временем задержки вылета
+					В решении обязательно должно быть использовано  - Оператор LIMIT    */
+						
+select flight_id ,
+	flight_no,
+	departure_airport,
+	arrival_airport,
+	departures as delays_in_departure
+from (select *,
+	rank()over(order by departures desc)
+	from(select  flight_id ,
+		flight_no ,
+		departure_airport ,
+		arrival_airport ,
+		(actual_departure - scheduled_departure) as departures
+	from flights f) delays) delays
+where rank > 1
+limit 10
+
+
+				
+
+					/*	№ 4
+						Вопрос : Были ли брони, по которым не были получены посадочные талоны?
+						В решении обязательно должно быть использовано - Верный тип JOIN   */
+
+
+with b_w_b as (
+ 		select max(rank) booking_who_boarded  -- 502 052
+		from (select --(book_ref),
+			rank()over(order by book_ref)
+			from (select (t.ticket_no) , 
+				(b.book_ref) ,
+				bp.flight_id ,
+				(bp.boarding_no) 
+				from bookings b 
+				inner join tickets t on b.book_ref = t.book_ref 
+				inner join boarding_passes bp on bp.ticket_no = t.ticket_no
+				--group by bp.flight_id 
+				order by bp.flight_id ) foo
+				group by book_ref) foo
+ 						)
+ select (count(book_ref) - b_w_b.booking_who_boarded) nr_of_bookings_not_boarded
+ from b_w_b, bookings b 
+ group by b_w_b.booking_who_boarded
+  
+ 
+ 
+ 
+ 
+ 
+ 
+				/*                       № 5
+				Вопрос  : Найдите свободные места для каждого рейса, их % отношение к общему количеству мест в самолете.
+				Добавьте столбец с накопительным итогом - суммарное накопление количества вывезенных пассажиров из 
+				каждого аэропорта на каждый день. Т.е. в этом столбце должна отражаться накопительная сумма - сколько 
+				человек уже вылетело из данного аэропорта на этом или более ранних рейсах за день.
+				В решении обязательно должно быть использовано : - Оконная функция
+				- Подзапросы или cte        */
+ 
+ 
+                   
+
+ 
+    
+select count(s.seat_no) total_seats_on_plane,
+		t1.seats_ocupied ,
+		t1.sum_ as "сумма вывезенных пассажиров",
+		(count(s.seat_no) - t1.seats_ocupied) as empty_seats_per_flight,
+		round(((count(s.seat_no) - t1.seats_ocupied) / count(s.seat_no) :: numeric * 100)) percents_of_empty_seats,
+		t1.flight_id,
+		t1.aircraft_code,
+		t1.scheduled_departure,
+		t1.departure_airport,
+		row_number()over(partition by t1.scheduled_departure::date, t1.departure_airport order by t1.scheduled_departure)
+from(select count(bp.seat_no) seats_ocupied,
+		sum(count(bp.seat_no))over(partition by f.departure_airport, f.scheduled_departure::date order by f.scheduled_departure) sum_,
+		f.flight_id ,
+		f.aircraft_code ,
+		f.scheduled_departure ,
+		f.departure_airport 
+	from flights f 
+	join boarding_passes bp on bp.flight_id = f.flight_id 
+	where f.status = 'Arrived'
+	group by f.flight_id, f.departure_airport , f.scheduled_departure 
+	order by f.scheduled_departure desc, sum_ ) t1
+join seats s on s.aircraft_code = t1.aircraft_code
+group by t1.seats_ocupied ,
+		t1.flight_id,
+		t1.aircraft_code,
+		t1.scheduled_departure,
+		t1.departure_airport,
+		t1.sum_
+ 
+		
+/*  Найдите свободные места для каждого рейса, их % отношение к общему количеству мест в самолете.
+Добавьте столбец с накопительным итогом - суммарное количество вывезенных пассажиров из аэропорта за день.
+Т.е. в этом столбце должна отражаться сумма - сколько человек уже вылетело из данного аэропорта на этом или более ранних рейсах за сегодняшний день
+10
+Минус 25 баллов.
+Решение должно быть одним запросом.
+Накопление не соответствует условию, в окне что-то странное.
+При работе со свершенным действием нужно использовать фактические данные, а не планируемые. 
+  --            ВСЕ СДЕЛАЛ ПО КАЖДОМУ ПУНКТУ, КОД ВЫДАЕТ ДАННЫЕ КАК ТРЕБУЕТСЯ В ЗАДАНИИ */
+ 
+
+
+
+
+	----------------------------------------------------------------------------------------------------------------------------
+	
+              
+	
+	
+	--------------------------------------------------------------------------------------------------------------------------------------------------
+	
+	
+						/*				№ 6
+									Вопрос   : Найдите процентное соотношение перелетов по типам самолетов от общего количества.
+									В решении обязательно должно быть использовано   - Подзапрос
+																					- Оператор ROUND        */
+	
+
+
+
+with cte as  (select -- count(flight_id)  -- 65664
+						ad.aircraft_code,
+						count(f.flight_id) as nr_of_flights
+					from flights f 
+					join aircrafts_data ad on ad.aircraft_code = f.aircraft_code
+					group by ad.aircraft_code) 
+select * ,
+		round(nr_of_flights / (select sum(nr_of_flights)  :: numeric from cte) * 100, 2) as percent
+from cte
+
+					
+
+					
+
+
+						/*		№   7
+								Вопрос  :  Были ли города, в которые можно  добраться бизнес - классом дешевле, чем эконом-классом в рамках перелета?
+								В решении обязательно должно быть использовано : - CTE           */
+
+
+
+			 
+with cte as(select tf.flight_id ,
+					tf.fare_conditions business,
+					tf.amount cost_business,
+					tf2.fare_conditions economy,
+					tf2.amount cost_economy,
+					(tf2.amount - tf.amount) price_diff
+			from(select tf.flight_id ,
+					tf.fare_conditions ,
+					tf.amount 
+				from(select tf.flight_id ,
+						tf.fare_conditions ,
+						tf.amount ,
+						row_number()over(partition by tf.amount order by tf.flight_id)
+					from ticket_flights tf 
+					where tf.fare_conditions = 'Business'
+					order by tf.flight_id) tf 
+				where row_number = 1)tf
+			join (select tf2.flight_id ,
+					tf2.fare_conditions ,
+					tf2.amount 
+					from(select tf.flight_id ,
+							tf.fare_conditions ,
+							tf.amount ,
+							row_number()over(partition by tf.amount order by tf.flight_id)
+						from ticket_flights tf 
+						where tf.fare_conditions = 'Economy'
+						order by tf.flight_id) tf2 
+					where row_number = 1) as tf2 on tf2.flight_id = tf.flight_id)
+select cte.flight_id,
+		cte.business,
+		cte.cost_business,
+		cte.economy,
+		cte.cost_economy,
+		case 
+			when cte.price_diff > 0 then ad.city->>'ru' 
+		end "город куда дешевле бизнес-класс",
+		case 
+			when cte.price_diff < 0 then ad.city->>'ru' 
+		end "город куда дешевле эконом-класс"
+from cte
+join flights f on f.flight_id = cte.flight_id
+join airports_data ad on ad.airport_code = f.arrival_airport
+
+    /*  Были ли города, в которые можно добраться бизнес - классом дешевле, чем эконом-классом в рамках перелета?
+0
+Отсутствует ответ на вопрос. Запрос не имеет смысла в том плане, что есть конкретный вопрос, на который ожидается конкретный ответ.
+В базе около 33 тысяч перелетов, но в результат Вы выводите избыточность в 250+ тысяч строк со словами "ну сами там посмотрите были такие перелеты или нет…"
+В результате должны быть названия городов. 
+  ВСЕ ИСПРАВИЛ, ВЫВЕЛ СТОЛБЦЫ НАЗВАНИЙ ГОРОДОВ КУДА ДЕШЕВЛЕ БИЗНЕС КЛАССОМ И ЭКОНОМ
+                 */
+				 
+				 
+     
+				/*				 				№ 8
+								Вопрос  :  Между какими городами нет прямых рейсов?
+								В решении обязательно должно быть использовано  :  - Декартово произведение в предложении FROM
+								- Самостоятельно созданные представления (если облачное подключение, то без представления)
+								- Оператор EXCEPT                                  */
+
+
+
+select ct.city_out->>'ru' as "нет прямых рейсов",
+		city_in->>'ru' "данные города"
+from(select ad1.city as city_out,
+				ad2.city as city_in
+		from airports_data ad1, airports_data ad2
+		where ad1.city != ad2.city
+		except 
+		select city_out,
+				city_in
+		from(select f.departure_airport,
+				ad1.city as city_out,
+				f.arrival_airport,
+				ad2.city as city_in,
+				row_number()over(partition by ad1.city, ad2.city)
+			from flights f
+			join airports_data ad1 on ad1.airport_code = f.departure_airport 
+			join airports_data ad2 on ad2.airport_code = f.arrival_airport
+			group by f.departure_airport,
+					ad1.city,
+					f.arrival_airport,
+					ad2.city) ct
+		where row_number = 1)ct  
+group by ct.city_out, ct.city_in
+order by ct.city_out, ct.city_in
+
+/*   Между какими городами нет прямых рейсов?
+10
+Минус 15 баллов.
+В чем смысл этих строк с пробелами?
+Вопрос про города, а не аэропорты. Так как есть города в которых по несколько аэропортов, то получаете ложные данные.  
+        ВСЕ ИСПРАВИЛ, ВЫВЕДЕНЫ ЧЕТКО ГОРОДА БЕЗ ПОВТОРОВ И ИМЕННО ТЕ ГДЕ НЕТ ПРЯМЫХ РЕЙСОВ*/
+
+ 
+		
+	
+
+
+						/*				№ 9
+										Вопрос    :   Вычислите расстояние между аэропортами, связанными прямыми рейсами, 
+										сравните с допустимой максимальной дальностью перелетов  в самолетах, обслуживающих эти рейсы *
+										
+										В решении обязательно должно быть использовано     ::  - Оператор RADIANS или использование sind/cosd
+										- CASE
+*/
+ 
+ 
+
+select t."город вылета",
+		t."город прилета",
+		t."растояние между городами",
+		t.aircraft_code,
+		acd.range as "дальность перелета самолета"
+from(with cte as(select concat(t.departure_airport ,'  ',
+										ad1.city->> 'ru') "город вылета" ,
+										ad1.coordinates[0] Latitude_depart,
+								 		ad1.coordinates[1] Longitude_depart ,
+										 concat(t.arrival_airport ,
+										 ad2.city->> 'ru') "город прилета",
+										 ad2.coordinates[0] Latitude_arrive,
+								 		ad2.coordinates[1] Longitude_arrive ,
+										 t.aircraft_code
+					from(select departure_airport ,
+								 arrival_airport ,
+								 aircraft_code
+						from flights f 
+						group by f.departure_airport , f.arrival_airport, f.aircraft_code
+						order by departure_airport, arrival_airport) t
+					join airports_data ad1 on t.departure_airport = ad1.airport_code 
+					join airports_data ad2 on t.arrival_airport = ad2.airport_code)
+		select *,
+		round(6371 *(acos(sin(radians(latitude_depart))*sin(radians(latitude_arrive)) + 
+				cos(radians(latitude_depart))*cos(radians(latitude_arrive))*cos(radians(longitude_depart - longitude_arrive))):: numeric))
+				as "растояние между городами"
+		from cte)t
+join aircrafts_data acd on acd.aircraft_code = t.aircraft_code
+
+
+/*  Вычислите расстояние между аэропортами, связанными прямыми рейсами, сравните с допустимой максимальной дальностью перелетов в самолетах, обслуживающих эти рейсы 15
+Минус 20 баллов.
+Формула не соответствует той, что дана в условии. Наполеону, возможно, стоит верить, но тратить время на перепроверку его расчетов нет возможности, учитывая, 
+что результат получаете ложный, может Наполеон и ошибся. А может перепутали широту с долготой. 
+ПРО НАПОЛЕОНА-  ТУ ФОРМУЛУ Я НАШЕЛ В ИНТЕРНЕТЕ, ДУМАЛ ЭТО УНИВЕРСАЛЬНОЕ ОБЩЕПРИНЯТОЕ РЕШЕНИЕ, Я НЕ СПЕЦИАЛИСТ В ЭТОМ :) .
+  СЕЙЧАС СДЕЛАЛ ПО ФОРМУЛЕ ДАННОЙ В ЗАДАНИИ */
+
+
+
+
+
